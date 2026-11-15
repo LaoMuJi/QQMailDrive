@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>QQMailDrive - 个人加密网盘</title>
+  <link rel="stylesheet" href="style.css?v=2.0.2">
+</head>
+<body>
+  <!-- 顶部轻量非阻塞通知 (3秒自动淡出) -->
+  <div class="toast-wrapper" id="toastWrapper"></div>
+  <div class="app-container">
+    <!-- 顶部导航 -->
+    <header class="top-nav">
+      <div class="nav-brand">
+        <span class="logo-icon">📦</span>
+        <div class="logo-text">
+          <h1>QQMailDrive <span class="badge-ver">v1.0.0</span></h1>
+          <p class="author-tag">作者：杀熊 | 无限容量加密空间</p>
+        </div>
+      </div>
+      <div class="nav-status">
+        <div class="nav-account-wrap">
+          <span class="nav-account-icon">👤</span>
+          <span class="nav-account-label" id="navAccountLabel"></span>
+          <span class="dot" id="connDot" style="display:none;"></span>
+          <span id="connText" style="display:none;"></span>
+        </div>
+        <div class="channel-status-group">
+          <button class="status-pill-btn disconnected" id="btnImapStatus" type="button" title="IMAP 邮件长连接通道 (断开时点击可重新连接)">
+            <span class="status-dot"></span>
+            <span class="status-label" id="imapStatusText">IMAP通道 检测中...</span>
+          </button>
+          <button class="status-pill-btn disconnected" id="btnHttpStatus" type="button" title="HTTP 网页端免Base64直下通道 (未连接时点击扫码登录开启加速)">
+            <span class="status-dot"></span>
+            <span class="status-label" id="httpStatusText">HTTP通道 检测中...</span>
+          </button>
+        </div>
+        <button class="btn btn-secondary" id="btnCompact" title="合并小文件和半满压缩包，极大减少邮件数量配额">🗜️ 深度整理 (省配额)</button>
+        <button class="btn btn-secondary" id="btnSettings">⚙️ 设置</button>
+        <button class="btn btn-secondary btn-exit-app" id="btnExitApp" title="安全退出 QQMailDrive 核心服务">⏹️ 退出</button>
+      </div>
+    </header>
+
+    <!-- 服务端离线感知浮动横幅 -->
+    <div id="offlineStatusBar" class="offline-status-bar hidden">
+      <div class="offline-status-content">
+        <span class="offline-icon">🔌</span>
+        <span class="offline-text"><strong>QQMailDrive 服务端已退出 / 本地连接已断开</strong>（重新启动 QQMailDrive.exe 即可秒级自动恢复连接）</span>
+        <span class="offline-retry-pill">
+          <span class="offline-pulse-dot"></span>
+          <span>正在自动重连...</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- 主工作区 -->
+    <main class="main-body">
+      <!-- 侧边栏：多级文件夹树与上传区域 (空间管理与统计已整合至右侧主地址栏) -->
+      <aside class="sidebar">
+        <!-- 多级文件夹目录树 -->
+        <div class="tree-container">
+          <div class="tree-header">
+            <span class="tree-title" style="display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;">
+              <span style="white-space: nowrap;">📁 隔离空间</span>
+              <span class="space-info-tip" tabindex="0" data-tip="每个隔离空间拥有完全独立的云端索引与数据分区，类似电脑的 C 盘、D 盘，互不干扰。">!</span>
+            </span>
+            <div style="display: flex; align-items: center; gap: 6px; margin-left: auto; min-width: 0;">
+              <span class="spaces-total-stats" id="spacesTotalStats"></span>
+              <button class="btn-text-xs" id="btnCreateSpaceQuick" title="新建隔离空间">+ 新建</button>
+              <button class="btn-text-xs" id="btnExpandAll" title="全部展开/折叠">⛶ 展开全部</button>
+            </div>
+          </div>
+          <div class="folder-tree-view" id="folderTreeView">
+            <!-- 动态递归渲染多级树 -->
+          </div>
+        </div>
+
+        <!-- 左侧下部传输队列列表 (每个文件独立进度条，可手动往上拖拽拉伸高度) -->
+        <div class="side-transfer-panel" id="sideTransferPanel">
+          <div class="side-panel-resizer" id="sidePanelResizer" title="按住上下拖动调整传输队列面板高度"></div>
+          <div class="side-transfer-header">
+            <div class="side-queue-title-bar">
+              <span class="side-queue-title">⚡ 传输队列 (<span id="sideTransferCount">0</span>)</span>
+              <button class="btn-clear-completed" id="btnClearCompleted" style="display: none;" title="清空已完成或失败的传输记录">🧹 清空已完成</button>
+            </div>
+            <div class="side-queue-single-row">
+              <div class="side-queue-group-left">
+                <button class="btn-queue-pill" id="btnResumeAll" title="恢复全部暂停的任务">▶️ 全部开始</button>
+                <button class="btn-queue-pill" id="btnPauseAll" title="暂停全部进行中的任务">⏸ 全部暂停</button>
+              </div>
+              <div class="side-queue-group-right">
+                <label class="btn-queue-pill btn-queue-up" title="选择文件上传">📤 上传文件<input type="file" id="filePicker" multiple hidden></label>
+                <label class="btn-queue-pill btn-queue-up" title="选择文件夹上传">📁 上传文件夹<input type="file" id="folderPicker" webkitdirectory hidden></label>
+              </div>
+            </div>
+          </div>
+          <div class="side-transfer-list" id="sideTransferList">
+            <div class="side-transfer-empty">暂无传输任务</div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 侧边栏左右拖动分割条 -->
+      <div class="sidebar-resizer" id="sidebarResizer" title="左右拖动调整侧边栏宽度"></div>
+
+      <!-- 文件主列表区 -->
+      <section class="content-panel">
+        <!-- 一体化主操控台：双行结构（上行地址栏，下行全选、搜索与操作按钮） -->
+        <div class="main-toolbar-card">
+          <!-- 上行：空间管理按钮、隔离文件夹地址栏与统计信息整合行 (无下方分割线) -->
+          <div class="toolbar-row-breadcrumb" id="breadcrumbBar">
+            <div class="breadcrumb-left-group">
+              <span class="breadcrumb-label">根目录: </span>
+              <div class="breadcrumb" id="breadcrumb"></div>
+            </div>
+          </div>
+
+          <!-- 下行：全选、检索搜索框与操作按钮 -->
+          <div class="toolbar-row-actions">
+            <div class="select-all-container">
+              <label class="global-select-all-wrap" title="全选/取消全选当前目录所有文件">
+                <input type="checkbox" id="globalSelectAll" class="global-select-all-cb">
+                <span class="global-select-all-text">全选</span>
+              </label>
+            </div>
+            <!-- 检索搜索框 -->
+            <div class="search-box-wrap">
+              <span class="search-icon">🔍</span>
+              <input type="text" class="search-input" id="searchInput" placeholder="搜索文件或文件夹...">
+              <button class="search-clear hidden" id="searchClear">&times;</button>
+            </div>
+            <div class="toolbar-actions">
+              <!-- 批量操作按钮组：去除外层丑框，统一样式与颜色，去除“批量”字样 -->
+              <div class="batch-inline-group hidden" id="batchActionGroup">
+                <span class="batch-count-tag" id="batchCountTag">已选 0 项</span>
+                <button class="btn btn-sm btn-batch-share" id="btnBatchShare" style="background: #0284c7; color: white;">🔗 分享</button>
+                <button class="btn btn-sm btn-batch-dl" id="btnBatchDownload">📥 下载</button>
+                <button class="btn btn-sm btn-batch-cp" id="btnBatchCopy">📋 复制</button>
+                <button class="btn btn-sm btn-batch-mv" id="btnBatchMove">📦 移动</button>
+                <button class="btn btn-sm btn-batch-del" id="btnBatchDelete">🗑️ 删除</button>
+                <button class="btn btn-sm btn-batch-cancel" id="btnCancelBatch">取消</button>
+              </div>
+
+              <!-- 常规操作按钮 -->
+              <button class="btn btn-sm btn-primary" id="btnNewFolder">➕ 新建文件夹</button>
+              <button class="btn btn-sm btn-secondary" id="btnToggleView">🔲 切换视图</button>
+              <button class="btn btn-sm btn-secondary" id="btnHealthCheck" title="以云端真实邮件为权威，核对并修复数据一致性">🔍 存储对账</button>
+              <button class="btn btn-sm btn-refresh" id="btnRefresh" title="从云端重新同步最新的文件列表与索引状态">🔄 刷新列表</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 双层树状文件夹上传进度监控 (动态显示) -->
+        <div class="folder-progress-card hidden" id="folderProgressCard">
+          <div class="folder-prog-header">
+            <div class="folder-prog-title" id="fpTitle">正在上传: 项目素材/ (共 15 个文件)</div>
+            <div class="folder-prog-rate" id="fpRate">5.2 MB/s</div>
+          </div>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar-fill" id="fpTotalFill" style="width: 0%"></div>
+          </div>
+          <div class="folder-sub-tracker" id="fpSubDetail">
+            🚀 当前文件: /素材/bg.png (分片 2/3 - 0000000015.7z)
+          </div>
+        </div>
+
+        <!-- 全局主拖拽与文件展示区 (背景浅色水印，全区域可拖入) -->
+        <div class="file-view-wrapper list-mode" id="fileContainer">
+          <!-- 浅色拖拽提示水印 -->
+          <div class="drag-watermark">
+            <div class="watermark-icon">📥</div>
+            <div class="watermark-text">拖拽文件或文件夹至此区域即可上传</div>
+          </div>
+
+          <!-- 云端索引检索等待遮罩 (等到云端检索成功再显示) -->
+          <div class="cloud-loading-overlay hidden" id="cloudLoadingOverlay">
+            <div class="cloud-loading-box">
+              <div class="loading-spinner"></div>
+              <h4>正在检索 QQ 邮箱云端主索引...</h4>
+              <p>正在从云端加密存储拉取最新文件树，请稍候</p>
+            </div>
+          </div>
+
+          <!-- 真实文件渲染容器 -->
+          <div class="file-content-list" id="fileContentList"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- 底部纯粹日志栏 (仅保留实时运行日志，不显示状态或速度) -->
+    <footer class="task-dock" id="taskDock">
+      <div class="task-summary-bar">
+        <div class="dock-info">
+          <span class="task-title">📋 实时传输与加解密日志控制台</span>
+        </div>
+        <div class="dock-actions">
+          <button class="btn-dock-btn btn-dock-log" id="btnToggleLog">📜 查看日志</button>
+        </div>
+      </div>
+
+      <div class="log-drawer hidden" id="logDrawer">
+        <div class="log-drawer-resizer" id="logDrawerResizer" title="按住上下拖动调整日志控制台高度"></div>
+        <div class="log-toolbar" id="logToolbar">
+          <div class="log-level-group">
+            <span class="log-group-label">等级:</span>
+            <button class="log-level-btn active" data-level="ALL">全部</button>
+            <button class="log-level-btn btn-level-debug" data-level="DEBUG">🔍 DEBUG</button>
+            <button class="log-level-btn btn-level-info" data-level="INFO">ℹ️ INFO</button>
+            <button class="log-level-btn btn-level-warn" data-level="WARN">⚠️ WARN</button>
+            <button class="log-level-btn btn-level-error" data-level="ERROR">❌ ERROR</button>
+          </div>
+          <div class="log-module-group">
+            <span class="log-group-label">模块:</span>
+            <button class="log-module-btn active" data-module="ALL">全部</button>
+            <button class="log-module-btn" data-module="TRANSFER">⚡ 传输引擎</button>
+            <button class="log-module-btn" data-module="PREVIEW">🎬 在线预览</button>
+            <button class="log-module-btn" data-module="IMAP">🌐 IMAP链路</button>
+            <button class="log-module-btn" data-module="INDEX">📁 索引文件</button>
+          </div>
+          <div class="log-search-wrap">
+            <input type="text" class="log-search-input" id="logSearchInput" placeholder="🔍 搜索日志关键字...">
+          </div>
+          <div class="log-actions-group">
+            <button class="log-tool-btn" id="btnExportLog" title="导出日志到文本文件">📥 导出</button>
+            <button class="log-tool-btn" id="btnClearLogConsole" title="清空日志控制台">🧹 清屏</button>
+            <button class="log-tool-btn active" id="btnToggleAutoScroll" title="切换是否自动滚屏">⬇️ 自动滚屏</button>
+          </div>
+        </div>
+        <div class="log-console" id="logConsole">
+          <div style="color: #64748b;">[就绪] 等待传输任务日志输出...</div>
+        </div>
+      </div>
+    </footer>
+
+            <!-- 新建文件夹网页弹窗 (替代浏览器原生丑弹窗) -->
+    <div class="modal hidden" id="newFolderModal">
+      <div class="modal-box">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <h3 style="margin: 0;">📁 新建文件夹</h3>
+          <button class="modal-close-icon-btn" id="btnCloseNewFolderModal" title="关闭窗口">&times;</button>
+        </div>
+        <p style="color: var(--text-muted); font-size: 13px; margin: 8px 0 12px 0;">
+          在当前目录下创建新的文件夹：
+        </p>
+        <div class="form-group">
+          <label>文件夹名称</label>
+          <input type="text" id="newFolderNameInput" placeholder="请输入文件夹名称" required>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-primary" id="btnConfirmNewFolder">立即创建</button>
+          <button class="btn btn-secondary" id="btnCancelNewFolder">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 移动到文件夹弹窗 -->
+    <div class="modal hidden" id="moveModal">
+      <div class="modal-box modal-wide-move">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <h3 id="moveModalTitle" style="margin: 0;">📦 移动到目标文件夹</h3>
+          <button class="modal-close-icon-btn" id="btnCloseMoveModal" title="关闭窗口">&times;</button>
+        </div>
+        <p style="color: var(--text-muted); font-size: 13px; margin: 8px 0 12px 0;" id="moveTargetsDesc">
+          请选择要移动到的目标文件夹：
+        </p>
+        <div class="move-folder-picker" id="moveFolderPicker">
+          <!-- 动态渲染可选目录列表 -->
+        </div>
+        <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
+          <button class="btn btn-secondary" id="btnMoveNewFolder" title="在选中的目标位置新建子文件夹" style="display: inline-flex; align-items: center; gap: 4px;">
+            <span>📁</span><span>新建文件夹</span>
+          </button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" id="btnCancelMove">取消</button>
+            <button class="btn btn-primary" id="btnConfirmMove">确认移动</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 首次运行欢迎与初始化向导弹窗 (分层双步引导，保留老用户探测与新空间选择机制) -->
+    <div class="modal hidden" id="firstRunModal">
+      <div class="modal-box">
+        <!-- 步骤 1: 验证账号与授权码 -->
+        <div id="frStep1">
+          <h3>🎉 欢迎使用 QQMailDrive</h3>
+          <p style="color: var(--text-muted); font-size: 13px; margin: 8px 0 16px 0;">
+            请输入您的 QQ 邮箱与 16 位 IMAP 授权码以连入云端：
+          </p>
+          <div class="form-group">
+            <label>QQ 邮箱账号</label>
+            <div class="input-suffix-wrap">
+              <input type="text" id="frEmail" placeholder="输入QQ号或账号" required>
+              <span class="input-suffix-tag">@qq.com</span>
+            </div>
+            <small class="form-tip">只需输入前缀或QQ号即可，自动附带 @qq.com</small>
+          </div>
+          <div class="form-group">
+            <label>16 位 IMAP 授权码 (非 QQ 密码)</label>
+            <input type="password" id="frAuthCode" placeholder="在 QQ 邮箱网页版设置-账户中生成" required>
+            <small class="form-tip">提示：开启 POP3/IMAP 后发送短信即可获得 16 位字母授权码</small>
+          </div>
+          <div class="modal-actions" style="margin-top: 20px;">
+            <button type="button" class="btn btn-primary" id="btnFrStep1Next" style="width: 100%;">下一步：验证并检测云端空间 ➔</button>
+          </div>
+        </div>
+
+        <!-- 步骤 2: 老用户选择现有空间 / 新用户创建空间 -->
+        <div id="frStep2" class="hidden">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h3 style="margin: 0; font-size: 16px;">📂 选择隔离存储空间</h3>
+            <button type="button" class="btn-text" id="btnFrBackToStep1" style="font-size: 12.5px; color: var(--primary); cursor: pointer; border: none; background: none; padding: 0;">⬅ 返回修改账号</button>
+          </div>
+
+          <!-- 老用户分支：检测到 QMD 规范空间 -->
+          <div id="frOldUserSection" class="hidden">
+            <p style="font-size: 13px; margin: 4px 0 12px 0; color: var(--text-main); line-height: 1.5;">
+              🎉 <strong>检测到您的 QQ 邮箱中包含多个已初始化的隔离网盘空间</strong>，请选择要进入的空间：
+            </p>
+            <div id="frExistingFolderList" style="max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;">
+              <!-- 动态渲染老用户已有 QMD 空间列表 -->
+            </div>
+          </div>
+
+          <!-- 新用户分支：未检测到 QMD 空间 -->
+          <div id="frNewUserSection" class="hidden">
+            <p style="font-size: 13px; margin: 4px 0 12px 0; color: var(--text-main); line-height: 1.5;">
+              ✨ <strong>检测到您是新用户</strong>，请设置您的首个专属隔离存储空间：
+            </p>
+            <div class="form-group">
+              <label style="font-size: 13.5px; font-weight: 600; margin-bottom: 6px; display: block;">隔离存储空间目录名</label>
+              <input type="text" id="frNewUserFolder" value="MailDrive" placeholder="默认 MailDrive，可自由修改" required style="width: 100%; height: 42px; line-height: 42px; padding: 0 14px; font-size: 14px; border: 1.5px solid var(--border); border-radius: 6px; outline: none; background: #fff; color: var(--text-main); box-sizing: border-box;">
+              <small class="form-tip" style="font-size: 12px; margin-top: 6px; display: block;">将在您的 QQ 邮箱中以此名称创建独立专属目录，所有网盘加密数据与正常邮件物理隔离</small>
+            </div>
+          </div>
+
+          <div class="modal-actions" style="margin-top: 20px;">
+            <button type="button" class="btn btn-primary" id="btnFrFinish" style="width: 100%; height: 42px; font-size: 14px; font-weight: 600; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer;">🚀 进入选中的空间</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 深度整理说明与确认弹窗 -->
+    <div class="modal hidden" id="compactModal">
+      <div class="modal-box">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <h3 style="margin: 0;">🗜️ 深度空间整理（合并小文件）</h3>
+          <button class="modal-close-icon-btn" id="btnCloseCompactModal" title="关闭窗口">&times;</button>
+        </div>
+        <p style="margin: 12px 0; font-size: 13px; line-height: 1.6; color: var(--text-main);">
+          本功能将扫描当前网盘中所有的零散小文件和半空的压缩包，通过<strong>装箱组合算法</strong>重新打包合并为接近 <strong id="dispCompactChunkSize">50MB</strong> 的紧凑大包，<strong>最大程度减少占用的 QQ 邮箱邮件总数（节约 50 万邮件配额）</strong>。
+        </p>
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 10px; margin-bottom: 10px; font-size: 12.5px; color: #92400e; line-height: 1.5;">
+          💡 <strong>慎点提示（一般用不满无需整理）</strong>：QQ 邮箱自身支持数十万封邮件配额，日常正常存储文件<strong>一般完全用不满，通常不需要执行整理</strong>，请谨慎点击（避免无谓消耗本地重加密和上传下载流量）。
+        </div>
+        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 10px; margin-bottom: 16px; font-size: 12px; color: #b91c1c; line-height: 1.5;">
+          ⚠️ <strong>注意</strong>：此操作需要将零散小文件下载到本地重新加密上传，<strong>耗时相对较长且会消耗流量</strong>，非必要无需执行。
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-primary" id="btnConfirmCompact">🚀 开始执行整理</button>
+          <button class="btn btn-secondary" id="btnCancelCompact">取消</button>
+        </div>
+      </div>
+    </div>
+
+    
+    </div>
+
+    <!-- 存储一致性对账报告弹窗 (含详细功能机制说明) -->
+    <div class="modal hidden" id="healthModal">
+      <div class="modal-box modal-lg">
+        <div class="health-modal-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div>
+            <h3 style="margin: 0;">🔍 云端存储一致性对账</h3>
+            <p class="health-modal-subtitle" style="margin-top: 4px;">以云端 QQ 邮箱隔离存储文件夹为唯一真理源，对全盘数据进行高速元数据审查与自愈对齐</p>
+          </div>
+          <button class="modal-close-icon-btn" id="btnCloseHealthModal" title="关闭窗口" style="margin-left: 12px; flex-shrink: 0;">&times;</button>
+        </div>
+
+        <!-- 详细功能说明看板 -->
+        <div class="health-explain-card">
+          <div class="explain-highlight-bar">
+            <span>⚡ 极速审查机制：</span>系统仅拉取邮件协议头中的 <code>X-Drive-Meta</code> 属性，耗时仅 2~5 秒，<strong>绝不下载任何文件附件，全程零流量消耗</strong>。
+          </div>
+          <div class="explain-grid">
+            <div class="explain-item">
+              <div class="explain-icon">📥</div>
+              <div class="explain-text">
+                <strong>智能补录孤儿文件</strong>
+                <p>若曾遭遇断电异常、多设备新接入或主索引未及时同步，系统能自动将云端已完整分片的文件按原始目录、真实大小与时间重构入库。</p>
+              </div>
+            </div>
+            <div class="explain-item">
+              <div class="explain-icon">🧹</div>
+              <div class="explain-text">
+                <strong>清理失效幽灵条目</strong>
+                <p>若索引中登记了文件但云端对应邮件已被手动清除或分片缺失，系统将自动识别死条目并安全剔除，避免点击下载时报错。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="health-results-title">📊 扫描审查结果：</div>
+        <div class="health-results" id="healthResults">
+          <p>正在扫描云端所有邮件报头...</p>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-primary hidden" id="btnApplyRepair">🚀 一键修复并同步至云端</button>
+          <button class="btn btn-secondary" id="btnCloseHealth">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设置弹窗 (左侧分类标签栏 + 右侧参数设置面板) -->
+    <div class="modal hidden" id="settingsModal">
+      <div class="modal-box settings-modal-box">
+        <div class="settings-modal-header">
+          <div class="settings-title-wrap">
+            <h3 class="settings-modal-title">⚙️ 网盘核心参数设置</h3>
+            <span class="settings-modal-subtitle">所有设置均加密漫游至云端，多设备自动同步</span>
+          </div>
+          <button class="modal-close-icon-btn" type="button" id="btnCloseSettingsModal" title="关闭窗口">&times;</button>
+        </div>
+
+        <div class="settings-roam-hint">
+          <span class="hint-icon">☁️</span>
+          <span><strong>云端设置漫游已开启</strong>：所有设置加密备份于「收到的文件」邮件中，多端自动漫游；下载路径按电脑识别码独立记忆。</span>
+        </div>
+
+        <form id="settingsForm">
+          <div class="settings-layout">
+            <!-- 左侧分类侧边栏导航 (Tabs) -->
+            <nav class="settings-nav" aria-label="设置导航">
+              <button type="button" class="settings-tab-btn active" data-tab="account">
+                <span class="tab-icon">👤</span>
+                <span class="tab-label">账号</span>
+              </button>
+              <button type="button" class="settings-tab-btn" data-tab="features">
+                <span class="tab-icon">⚡</span>
+                <span class="tab-label">功能</span>
+              </button>
+              <button type="button" class="settings-tab-btn" data-tab="upload">
+                <span class="tab-icon">📤</span>
+                <span class="tab-label">上传</span>
+              </button>
+              <button type="button" class="settings-tab-btn" data-tab="download">
+                <span class="tab-icon">📥</span>
+                <span class="tab-label">下载</span>
+              </button>
+            </nav>
+
+            <!-- 右侧分类内容面板 (Panels) -->
+            <div class="settings-content">
+              <!-- 1. 账号面板 -->
+              <div class="settings-panel active" id="settingsPanel-account">
+                <div class="panel-header">
+                  <h4 class="panel-title">账号与身份认证</h4>
+                  <p class="panel-desc">管理 QQ 邮箱登录凭据及对外分享时的身份标识</p>
+                </div>
+                <div class="form-group">
+                  <label>QQ 邮箱账号</label>
+                  <div class="input-suffix-wrap">
+                    <input type="text" id="cfgEmail" placeholder="输入QQ号或账号">
+                    <span class="input-suffix-tag">@qq.com</span>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>IMAP 授权码 (非登录密码)</label>
+                  <input type="password" id="cfgAuthCode" placeholder="在QQ邮箱设置生成的16位授权码">
+                  <small class="form-tip">在 QQ 邮箱网页端「设置 - 账户 - POP3/IMAP/SMTP服务」中开启并生成专属 16 位授权码</small>
+                </div>
+                <div class="form-group">
+                  <label>分享人昵称 <span style="color: var(--text-muted); font-weight: normal;">(选填)</span></label>
+                  <input type="text" id="cfgUserNick" placeholder="留空则默认使用 QQ 号作为分享人昵称" maxlength="32">
+                  <small class="form-tip">发送文件分享时（HTTP 与邮箱协议通用），对方接收空间将按此昵称归档展示</small>
+                </div>
+              </div>
+
+              <!-- 2. 功能面板 -->
+              <div class="settings-panel" id="settingsPanel-features">
+                <div class="panel-header">
+                  <h4 class="panel-title">系统核心功能与调优</h4>
+                  <p class="panel-desc">调控分片大小、防风控策略及本地离线缓存加速</p>
+                </div>
+                <div class="form-group">
+                  <label id="lblChunkSize">单分片大小字节 <span id="chunkSizeConverted" style="color: var(--primary); font-weight: 600;">(约 50.00 MB)</span></label>
+                  <input type="number" id="cfgChunkBytes" min="1048576" value="52428799">
+                  <small class="form-tip">直接输入精确字节数 (默认 52428799 字节，约 50.00 MB，严格避让 QQ 邮箱 50MB 临界风控线)</small>
+                </div>
+                <div class="form-group">
+                  <label>防风控出队延时间隔 (毫秒，建议 250 或 500，设为 0 完全无延时)</label>
+                  <input type="number" id="cfgDelay" min="0" value="250">
+                  <small class="form-tip">连续网络请求间的避让缓冲时间；合理延时可杜绝频繁触发腾讯风控拦截</small>
+                </div>
+                <div class="form-group" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px;">
+                  <div>
+                    <label for="cfgThumbLocalCache" style="margin: 0; font-weight: 600; cursor: pointer;">🖼️ 启用本地缩略图数据库缓存</label>
+                    <small class="form-tip" style="display: block; margin-top: 2px;">开启后自动保存至本地 cache/thumbs.db；关闭后不读取本地库，直接从云端获取</small>
+                  </div>
+                  <input type="checkbox" id="cfgThumbLocalCache" checked style="width: 18px; height: 18px; cursor: pointer; flex-shrink: 0;">
+                </div>
+              </div>
+
+              <!-- 3. 上传面板 -->
+              <div class="settings-panel" id="settingsPanel-upload">
+                <div class="panel-header">
+                  <h4 class="panel-title">上传传输策略</h4>
+                  <p class="panel-desc">配置邮件协议专线与 HTTP 网页直传协同的上传流水线</p>
+                </div>
+                <div class="form-group">
+                  <label>邮件协议 (IMAP) 上传并发限制 (默认: 1，可选 1~3，首切片与缩略图正文严格走此通道)</label>
+                  <input type="number" id="cfgConcurrency" min="1" max="3" value="1">
+                  <small class="form-tip">首切片与缩略图正文严格走此通道，保证目录严密与索引一致性</small>
+                </div>
+                <div class="form-group">
+                  <label>HTTP 网页端协同上传并发数 (默认: 1，设为 0 禁用纯走 IMAP，可选 0~3，仅参与纯数据切片协同直传)</label>
+                  <input type="number" id="cfgHTTPUploadConcurrency" min="0" max="3" value="1">
+                  <small class="form-tip">首切片（含缩略图正文）与主索引固定走 IMAP 保证目录严密；纯数据切片可接入 HTTP 网页通道协同直传</small>
+                </div>
+              </div>
+
+              <!-- 4. 下载面板 -->
+              <div class="settings-panel" id="settingsPanel-download">
+                <div class="panel-header">
+                  <h4 class="panel-title">下载与落地策略</h4>
+                  <p class="panel-desc">配置本地保存路径与多协议混合高速下载通道</p>
+                </div>
+                <div class="form-group">
+                  <label>本地指定下载保存目录 <span style="font-weight: normal; color: var(--text-muted); font-size: 12px;">(当前电脑识别码: <strong id="cfgComputerId" style="color: var(--primary); font-family: monospace;">--</strong>)</span></label>
+                  <div class="input-action-group">
+                    <input type="text" id="cfgDownloadDir" placeholder="如 D:\Downloads 或 C:\Users\lcc92\Downloads">
+                    <button type="button" class="btn btn-secondary btn-sm" id="btnPickDownloadDir" title="弹出选择本地文件夹">📁 浏览选择</button>
+                  </div>
+                  <small class="form-tip">支持各台电脑独立设置保存目录；配置随邮箱漫游，当前电脑专属保存路径自动绑定至本机识别码</small>
+                </div>
+                <div class="form-group">
+                  <label>邮件协议 (IMAP) 大文件并发下载链路数 (默认: 3，可选 1~5)</label>
+                  <input type="number" id="cfgChunkConcurrency" min="1" max="5" value="3">
+                  <small class="form-tip">常驻长连接池，多切片无序并行拉取并直接在内存解密</small>
+                </div>
+                <div class="form-group">
+                  <label>HTTP 网页端极速下载并发数 (默认: 3，设为 0 禁用，可选 0~5，需已扫码登录 Webmail)</label>
+                  <input type="number" id="cfgHTTPDownloadConcurrency" min="0" max="5" value="3">
+                  <small class="form-tip">与 IMAP 组成双协议混合并发下载池；HTTP 免 Base64 膨胀立省 33% 流量，速度倍增</small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-actions" style="margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border);">
+            <button type="submit" class="btn btn-primary">保存设置</button>
+            <button type="button" class="btn btn-secondary" id="btnCloseSettings">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- 通用网页输入弹窗 (彻底替换浏览器原生 prompt) -->
+    <div class="modal hidden" id="inputPromptModal">
+      <div class="modal-box">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <h3 id="inputPromptTitle" style="margin: 0;">✏️ 请输入</h3>
+          <button class="modal-close-icon-btn" type="button" id="btnCloseInputPromptModal" title="关闭窗口">&times;</button>
+        </div>
+        <p style="color: var(--text-muted); font-size: 13px; margin: 8px 0 12px 0;" id="inputPromptDesc"></p>
+        <div class="form-group">
+          <label id="inputPromptLabel">输入内容</label>
+          <input type="text" id="inputPromptVal" placeholder="请输入..." required>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-primary" id="btnConfirmPrompt">确定</button>
+          <button class="btn btn-secondary" id="btnCancelPrompt">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 通用网页危险操作确认弹窗 (彻底替换浏览器原生 confirm) -->
+    <div class="modal hidden" id="confirmDialogModal">
+      <div class="modal-box">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <h3 id="confirmDialogTitle" style="margin: 0;">⚠️ 操作确认</h3>
+          <button class="modal-close-icon-btn" type="button" id="btnCloseConfirmDialogModal" title="关闭窗口">&times;</button>
+        </div>
+        <p style="color: var(--text-main); font-size: 13.5px; line-height: 1.6; margin: 12px 0 16px 0;" id="confirmDialogMsg"></p>
+        <div class="modal-actions">
+          <button class="btn btn-danger" id="btnConfirmDialogYes">确定执行</button>
+          <button class="btn btn-secondary" id="btnConfirmDialogNo">取消</button>
+        </div>
+      </div>
+    </div>
+
+        <!-- 分享文件弹窗 -->
+    <div class="modal hidden" id="shareModal">
+      <div class="modal-box" style="max-width: 480px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <h3 style="margin: 0;">🔗 分享文件至对方 QQ 邮箱</h3>
+          <button class="modal-close-icon-btn" id="btnCloseShareModal" title="关闭窗口">&times;</button>
+        </div>
+        <p style="color: var(--text-muted); font-size: 13px; margin: 8px 0 12px 0;" id="shareFilesDesc">
+          文件将通过独立信封加密，切片流式推送至对方邮箱，对方客户端将自动入库：
+        </p>
+
+        <!-- 极速免流云转发授权状态卡片 -->
+        <div id="webmailStatusBox" class="hidden" style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 18px; line-height: 1;">⚡</span>
+            <strong style="color: #166534; font-size: 13px;">腾讯云端极速免流秒转已就绪</strong>
+          </div>
+          <span style="font-size: 11px; color: #166534; font-weight: 600; background: #dcfce7; padding: 3px 8px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; margin-left: 8px;">✔ 实时在线</span>
+        </div>
+
+        <!-- 扫码授权引导卡片 (若未扫码时展示) -->
+        <div id="webmailQRBox" style="text-align: center; background: #f8fafc; border: 1.5px dashed var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <strong style="font-size: 13px; color: var(--text-main);">📱 手机 QQ 扫码授权开启【0 流量秒转】</strong>
+            <span style="font-size: 11px; background: #e0f2fe; color: #0284c7; padding: 2px 6px; border-radius: 4px; font-weight: 600;">免流加速</span>
+          </div>
+          <div id="webmailQRImgWrap" style="width: 130px; height: 130px; margin: 0 auto; background: #fff; padding: 4px; border: 1px solid var(--border); border-radius: 6px; display: flex; align-items: center; justify-content: center; position: relative;">
+            <img id="webmailQRImg" src="" style="width: 100%; height: 100%; object-fit: contain;">
+          </div>
+          <div id="webmailQRTip" style="font-size: 11.5px; color: var(--primary); margin-top: 8px; font-weight: 500;">⏳ 正在生成手机 QQ 登录二维码...</div>
+          <div style="margin-top: 6px; display: flex; justify-content: center;">
+            <button type="button" class="btn-text" id="btnRefreshQR" style="font-size: 11px; color: var(--text-muted); cursor: pointer; border: none; background: none; text-decoration: underline;">刷新二维码</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>对方 QQ 邮箱</label>
+          <div class="input-suffix-wrap">
+            <input type="text" id="shareTargetEmail" placeholder="输入对方QQ号或邮箱" required>
+            <span class="input-suffix-tag">@qq.com</span>
+          </div>
+          <small class="form-tip">直接输入对方 QQ 号即可，自动附带 @qq.com</small>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 18px;">
+          <button class="btn btn-primary" id="btnConfirmShare">🚀 立即发送分享</button>
+          <button class="btn btn-secondary" id="btnCancelShare">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 极速传输加速通道引导弹窗 -->
+    <div class="modal hidden" id="speedupPromptModal">
+      <div class="modal-box" style="max-width: 440px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+            <span>🚀</span> 开启 HTTP 极速通道？
+          </h3>
+          <button class="modal-close-icon-btn" id="btnCloseSpeedupPrompt" title="关闭">&times;</button>
+        </div>
+        <p style="color: var(--text-muted); font-size: 13px; line-height: 1.6; margin: 8px 0 14px 0;">
+          当前 HTTP 网页通道未连接（仅使用 IMAP 通道）。<br>
+          使用<strong>手机 QQ 扫码登录</strong>网页端，可享受以下极速特权：
+        </p>
+        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 12.5px; color: var(--text-main);">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <span style="color: #16a34a; font-weight: bold; font-size: 14px;">✔</span>
+            <span><strong>免除 33% 流量膨胀</strong>：上传与下载均使用原始二进制流直传</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <span style="color: #16a34a; font-weight: bold; font-size: 14px;">✔</span>
+            <span><strong>多并发协同提速</strong>：解锁 5 并发极速下载与协同直传</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="color: #16a34a; font-weight: bold; font-size: 14px;">✔</span>
+            <span><strong>专属云端漫游</strong>：仅需扫码一次，长期保持登录</span>
+          </div>
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.5; background: #fffbeb; padding: 8px 12px; border-radius: 6px; border: 1px solid #fef3c7;">
+          💡 <em>若暂不登录，本次运行期间将不再弹窗打扰，直接通过 IMAP 专属通道稳妥传输；后续可随时点击右上角补扫。</em>
+        </div>
+        <div class="modal-actions" style="margin-top: 0; display: flex; gap: 10px; justify-content: flex-end;">
+          <button class="btn btn-secondary" id="btnSpeedupSkip" style="font-size: 13px;">📥 暂不登录，使用 IMAP 传输</button>
+          <button class="btn btn-primary" id="btnSpeedupScan" style="font-size: 13px; font-weight: 600;">📱 扫码登录开启极速</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 手机 QQ 扫码登录 HTTP 极速通道弹窗 -->
+    <div class="modal hidden" id="webmailQRModal">
+      <div class="modal-box" style="max-width: 400px; text-align: center;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; text-align: left;">
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+            <span>📱</span> 手机 QQ 扫码登录
+          </h3>
+          <button class="modal-close-icon-btn" id="btnCloseWebmailQRModal" title="关闭">&times;</button>
+        </div>
+        <p style="color: var(--text-muted); font-size: 12.5px; margin: 6px 0 14px 0; text-align: left;">
+          请使用当前网盘账号 (<strong id="qrTargetEmailTip" style="color: var(--primary);">--</strong>) 对应的手机 QQ 扫码登录，激活 HTTP 极速通道：
+        </p>
+        
+        <div style="background: #f8fafc; border: 1.5px dashed var(--border); border-radius: 10px; padding: 16px; margin-bottom: 14px; position: relative;">
+          <div id="standaloneQRImgWrap" style="width: 150px; height: 150px; margin: 0 auto; background: #fff; padding: 6px; border: 1px solid var(--border); border-radius: 8px; display: flex; align-items: center; justify-content: center; position: relative; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+            <img id="standaloneQRImg" src="" style="width: 100%; height: 100%; object-fit: contain;">
+            <div id="standaloneQRMask" class="hidden" style="position: absolute; inset: 0; background: rgba(255,255,255,0.92); display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 7px;">
+              <span style="font-size: 24px; margin-bottom: 4px;">⚠️</span>
+              <span style="font-size: 12px; font-weight: 600; color: #dc2626;" id="standaloneQRMaskText">二维码已失效</span>
+              <button class="btn btn-sm btn-primary" id="btnStandaloneQRRefreshMask" style="margin-top: 6px; font-size: 11.5px; padding: 2px 8px;">点击刷新</button>
+            </div>
+          </div>
+          <div id="standaloneQRTip" style="font-size: 12px; color: var(--primary); margin-top: 10px; font-weight: 500;">⏳ 正在生成手机 QQ 登录二维码...</div>
+          <div style="margin-top: 6px;">
+            <button type="button" class="btn-text" id="btnStandaloneRefreshQR" style="font-size: 11.5px; color: var(--text-muted); cursor: pointer; border: none; background: none; text-decoration: underline;">刷新二维码</button>
+          </div>
+        </div>
+
+        <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.4; text-align: left; background: #eff6ff; padding: 8px 12px; border-radius: 6px; border-left: 3px solid #3b82f6;">
+          🔒 <strong>安全保护</strong>：系统自动校验扫码身份与网盘账号一致性，严格杜绝串号；会话仅在本地安全加密漫游。
+        </div>
+
+        <div class="modal-actions" style="margin-top: 14px; justify-content: center;">
+          <button class="btn btn-secondary" id="btnCancelWebmailQRModal" style="width: 100%;">取消并关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 在线预览画中画浮窗 (背景透明可视、可随意拖拽、支持在线边播边下与一键下载) -->
+    <div class="modal hidden" id="previewModal">
+      <div class="modal-box modal-preview" id="modalPreviewBox">
+        <div class="preview-header" id="previewHeader" title="按住可随意拖拽移动此窗口">
+          <div class="preview-title-wrap" style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 50px; overflow: hidden;">
+            <span style="font-size: 15px; flex-shrink: 0;">🎬</span>
+            <span class="preview-title" id="previewTitle" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600;">文件预览</span>
+          </div>
+          <div class="preview-header-actions" id="previewHeaderActions" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0; white-space: nowrap;">
+            <a href="#" id="btnHeaderLaunchPotPlayer" class="btn btn-sm hidden" style="background: #10b981; color: #fff; text-decoration: none; font-size: 11.5px; padding: 2px 7px; height: 26px; border-radius: 4px; white-space: nowrap !important; flex-shrink: 0 !important; min-width: max-content !important; word-break: keep-all !important; display: inline-flex; align-items: center; gap: 3px;" title="唤起本机 PotPlayer 边下边播 (杜比5.1原声)">🚀 PotPlayer</a>
+            <button id="btnHeaderCopyStream" class="btn btn-sm btn-secondary hidden" style="font-size: 11.5px; padding: 2px 7px; height: 26px; white-space: nowrap !important; flex-shrink: 0 !important; min-width: max-content !important; word-break: keep-all !important; display: inline-flex; align-items: center;" title="复制播放地址至剪贴板">📋 复制流地址</button>
+            <button class="btn btn-primary btn-sm" id="btnPreviewDownload" style="font-size: 11.5px; padding: 2px 8px; height: 26px; white-space: nowrap !important; flex-shrink: 0 !important; min-width: max-content !important; word-break: keep-all !important; display: inline-flex; align-items: center;" title="完整保存到本地磁盘">📥 下载到本地</button>
+            <button class="btn-preview-close" id="btnModalMaximize" title="最大化/还原窗口" style="font-size: 13px; width: 26px; height: 26px; flex-shrink: 0;">⛶</button>
+            <button class="btn-preview-close" id="btnClosePreview" title="关闭预览" style="width: 26px; height: 26px; flex-shrink: 0;">&times;</button>
+          </div>
+        </div>
+        <div class="preview-content" id="previewContainer">
+          <!-- 动态嵌入图片、视频或文本 -->
+        </div>
+      </div>
+    </div>
+
+    <!-- 文件与文件夹右键上下文菜单 (支持单选与多选) -->
+    <div class="context-menu hidden" id="fileContextMenu" style="display: none;">
+      <div class="context-menu-item" id="ctxDownload"><span>📥</span> <span class="ctx-text">下载</span></div>
+      <div class="context-menu-item" id="ctxShare"><span>🔗</span> <span class="ctx-text">分享文件...</span></div>
+      <div class="context-menu-item" id="ctxCopy"><span>📋</span> <span class="ctx-text">复制</span></div>
+      <div class="context-menu-item" id="ctxMove"><span>📦</span> <span class="ctx-text">移动</span></div>
+      <div class="context-menu-item" id="ctxRename"><span>✏️</span> <span class="ctx-text">重命名</span></div>
+      <div class="context-menu-divider"></div>
+      <div class="context-menu-item danger" id="ctxDelete"><span>🗑️</span> <span class="ctx-text">删除</span></div>
+    </div>
+
+  <script src="app.js?v=1.0.0"></script>
+</body>
+</html>
